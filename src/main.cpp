@@ -7,6 +7,7 @@
 Commands str_to_cmd(std::string str) {
   if (str == "echo") return Commands::echo;
   else if (str == "exit") return Commands::ext;
+  else if (str == "type") return Commands::typ;
   else return Commands::unknown;
 }
 
@@ -52,6 +53,15 @@ int main() {
         std::cerr << "Invalid argument to exit: " << tokens.at(1) << std::endl;
       }
       break;
+    
+    case Commands::typ:
+      //interpret next token to be command to be typed
+      if (str_to_cmd(tokens.at(1)) != Commands::unknown) {
+        std::cout << tokens.at(1) << " is a shell builtin" << std::endl;
+      } else {
+        std::cout << tokens.at(1) << ": command not found" << std::endl;
+      }
+      //if it's unknown then throw error (let flow to default case)
 
     default:
       std::cout << input << ": command not found" << std::endl;

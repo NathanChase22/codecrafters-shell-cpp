@@ -1,3 +1,3 @@
 enum Commands {
-    echo, ext, unknown
+    echo, ext, typ, unknown=-1
 };
