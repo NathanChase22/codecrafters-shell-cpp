@@ -15,7 +15,11 @@ int main() {
     std::string input;
     std::getline(std::cin, input);
 
-    // handle unknown command
-    std::cout << input << ": command not found" << std::endl;
+    //if recognized command then run
+    if (input == "exit") {
+      exit(0);
+    } else { //ERROR 
+      std::cout << input << ": command not found" << std::endl;
+    }
   }
 }
