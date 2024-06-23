@@ -61,7 +61,7 @@ int main() {
       } else {
         std::cout << tokens.at(1) << ": command not found" << std::endl;
       }
-      //if it's unknown then throw error (let flow to default case)
+      break;
 
     default:
       std::cout << input << ": command not found" << std::endl;
