@@ -16,7 +16,8 @@ int main() {
     std::getline(std::cin, input);
 
     //if recognized command then run
-    if (input == "exit") {
+    if (input == "exit 0") {
+      //wonder if there's a way to parse out the exit code rather than it being hardcoded?
       exit(0);
     } else { //ERROR 
       std::cout << input << ": command not found" << std::endl;
