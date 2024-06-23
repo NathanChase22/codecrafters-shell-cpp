@@ -11,4 +11,7 @@ int main() {
   //create a string variable and use it store console input
   std::string input;
   std::getline(std::cin, input);
+
+  // handle unknown command
+  std::cout << input << ": command now found" << std::endl;
 }
