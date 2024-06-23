@@ -59,7 +59,7 @@ int main() {
       if (str_to_cmd(tokens.at(1)) != Commands::unknown) {
         std::cout << tokens.at(1) << " is a shell builtin" << std::endl;
       } else {
-        std::cout << tokens.at(1) << ": command not found" << std::endl;
+        std::cout << tokens.at(1) << ": not found" << std::endl;
       }
       break;
 
