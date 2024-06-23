@@ -1,6 +1,14 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
+#include "main.h"
+
+//create command helper method, should I pass in a dereferenced ptr (&)?
+Commands str_to_cmd(std::string str) {
+  if (str == "echo") return Commands::echo;
+  else if (str == "exit") return Commands::ext;
+  else return Commands::unknown;
+}
 
 int main() {
   // REPL (read eval print loop)
@@ -30,28 +38,24 @@ int main() {
     }
 
     std::string cmd = tokens.at(0);
+    switch (str_to_cmd(cmd))
+    {
+    case Commands::echo:
+      std::cout << input.substr(5) << std::endl;
+      break;
     
-    //if recognized command then run
-    if (cmd == "echo") {
-      //print out output, what's the best way to do this
-      //go back to input and print a substring that disincludes the first token? 
-      //find position of first ' ' delimiter
-      size_t pos = input.find(' ',0);
-      //check to see if the position is within bounds
-      if (pos != std::string::npos) {
-        std::cout << input.substr(pos+1) << std::endl;
-      }
-    }
-    else if (cmd == "exit") {
-      //try to parse parse second token and convert to int
+    case Commands::ext:
       try {
         int ext_code = std::stoi(tokens.at(1));
         exit(ext_code);
       } catch (const std::exception& e) {
         std::cerr << "Invalid argument to exit: " << tokens.at(1) << std::endl;
       }
-    } else { //ERROR 
+      break;
+
+    default:
       std::cout << input << ": command not found" << std::endl;
+      break;
     }
   }
 }
