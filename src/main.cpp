@@ -5,6 +5,7 @@ Commands str_to_cmd(std::string str) {
   if (str == "echo") return Commands::echo;
   else if (str == "exit") return Commands::ext;
   else if (str == "type") return Commands::typ;
+  else if (str == "pwd") return Commands::pwd;
   else return Commands::unknown;
 }
 
@@ -102,7 +103,11 @@ int main(int argc, char** argv) {
       //interpret next token to be command to be typed
       handle_type(tokens.at(1));
       break;
-
+    
+    case Commands::pwd:
+      //call getcwd()
+      std::cout << getcwd(NULL, 0) << std::endl;
+      break;
     //either it's an executable program or it's a unknown command
     default:
       //find out if program is an executable
