@@ -112,10 +112,21 @@ int main(int argc, char** argv) {
     
     case Commands::cd:
       //use chdir, assuming we have an absolute path
-      if (chdir(tokens[1].c_str()) == -1) {
+      if (chdir(tokens[1].c_str()) == -1 && tokens[1] != "~") {
         //fail condition
         std::cout << "cd: " << tokens[1] << ": No such file or directory" << std::endl;
+      } 
+      else if (tokens[1] == "~") {
+        //user home directory
+        chdir(getenv("HOME"));
       }
+      else {
+        //success set the environmental variable
+        if (setenv("PWD",tokens[1].c_str(),1) != 0) {
+          perror("setenv");
+        }
+      }
+      
       break;
     //either it's an executable program or it's a unknown command
     default:
