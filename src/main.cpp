@@ -85,6 +85,7 @@ int main(int argc, char** argv) {
 
     default:
       //either it's an unknown command or an executible
+      std::cout << "HERE (1)!" << std::endl;
       std::string exec_path = is_executable(cmd);
       if (!exec_path.empty()) {
         std::cout << cmd << "is " << exec_path << std::endl;
