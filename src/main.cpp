@@ -1,6 +1,8 @@
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <vector>
+#include <unistd.h>
 #include "main.h"
 
 //create command helper method, should I pass in a dereferenced ptr (&)?
@@ -11,7 +13,22 @@ Commands str_to_cmd(std::string str) {
   else return Commands::unknown;
 }
 
-int main() {
+std::string is_executable(std::string cmd) {
+  //get the enviromental PATH
+  const char* path = getenv("PATH");
+  std::istringstream iss(path);
+  std::string fp;
+
+  while (std::getline(iss,fp,':')) {
+    //append to fp our cmd
+    fp.append(cmd);
+    //check if the file exists
+    if(access(fp.c_str(), F_OK | X_OK) == 0) return fp;
+  }
+  return "";
+}
+
+int main(int argc, char** argv) {
   // REPL (read eval print loop)
   // when will there be a exit command other than an interrupt???
   while (1) { 
@@ -64,7 +81,13 @@ int main() {
       break;
 
     default:
-      std::cout << input << ": command not found" << std::endl;
+      //either it's an unknown command or an executible
+      std::string exec_path = is_executable(cmd);
+      if (!exec_path.empty()) {
+        std::cout << cmd << "is " << exec_path << std::endl;
+      } else { //is empty, which means no executable
+        std::cout << input << ": command not found" << std::endl;
+      }
       break;
     }
   }
