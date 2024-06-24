@@ -16,12 +16,15 @@ Commands str_to_cmd(std::string str) {
 std::string is_executable(std::string cmd) {
   //get the enviromental PATH
   const char* path = getenv("PATH");
+  std::cout << path << std::endl;
+
   std::istringstream iss(path);
   std::string fp;
 
   while (std::getline(iss,fp,':')) {
     //append to fp our cmd
     fp.append(cmd);
+    std::cout << fp << std::endl;
     //check if the file exists
     if(access(fp.c_str(), F_OK | X_OK) == 0) return fp;
   }
