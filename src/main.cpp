@@ -1,8 +1,3 @@
-#include <cstdlib>
-#include <iostream>
-#include <sstream>
-#include <vector>
-#include <unistd.h>
 #include "main.h"
 
 //create command helper method, should I pass in a dereferenced ptr (&)?
@@ -31,6 +26,35 @@ std::string is_executable(std::string cmd) {
   return "";
 }
 
+void handle_type(std::string arg1) {
+  if (str_to_cmd(arg1) != Commands::unknown) {
+      std::cout << arg1 << " is a shell builtin" << std::endl;
+    } else {
+      std::string exec_path = is_executable(arg1);
+        
+      if (!exec_path.empty()) {
+        std::cout << arg1 << " is " << exec_path << std::endl;
+      } else { //is empty, which means no executable
+        std::cout << arg1 << ": not found" << std::endl;
+      }
+    }
+}
+//gonna call int execv(const char *pathname, char *const argv[])
+void handle_exec(const std::string exec_path, const std::vector<std::string>& tokens) {
+  std::vector<char*> argv(tokens.size()+1);
+  //loop through and allocate deep copies of arg strings in tokens
+  for (size_t i = 0; i < tokens.size(); i++) {
+    argv[i] = strdup(tokens[i].c_str());
+  }
+  //null terminate the end
+  argv[tokens.size()] = nullptr;
+  //if execv failed then call error on process
+  if (execv(exec_path.c_str(), argv.data()) == -1) {
+    for (char* arg : argv) free(arg);
+    perror("execv failed\n");
+  }
+}
+
 int main(int argc, char** argv) {
   // REPL (read eval print loop)
   // when will there be a exit command other than an interrupt???
@@ -48,6 +72,7 @@ int main(int argc, char** argv) {
     //input stream reads
     std::istringstream iss(input);
     //create array list or 'vector' to store tokens
+    //NOTE: maybe better to create this outside the REPL and just flush at the end
     std::vector<std::string> tokens;
     std::string tok;
 
@@ -75,22 +100,25 @@ int main(int argc, char** argv) {
     
     case Commands::typ:
       //interpret next token to be command to be typed
-      if (str_to_cmd(tokens.at(1)) != Commands::unknown) {
-        std::cout << tokens.at(1) << " is a shell builtin" << std::endl;
-      } else {
-        std::string exec_path = is_executable(tokens.at(1));
-        
-        if (!exec_path.empty()) {
-          std::cout << tokens.at(1) << " is " << exec_path << std::endl;
-        } else { //is empty, which means no executable
-          std::cout << tokens.at(1) << ": not found" << std::endl;
-        }
-      }
+      handle_type(tokens.at(1));
       break;
 
+    //either it's an executable program or it's a unknown command
     default:
+      //find out if program is an executable
+      std::string exec_path = is_executable(cmd);
+      //check to see if we got an empty string back, then fail condition
+      if (!exec_path.empty()) {
+        //fork a process
+        int pid = fork();
+        int stat;
+        //if child then run
+        if (pid == 0) handle_exec(exec_path, tokens);
+        else waitpid(pid, &stat, 2);
+        //wait till it's finished 
+      } else {
         std::cout << input << ": command not found" << std::endl;
-        break;
+      }
     }
   }
 }
