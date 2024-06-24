@@ -6,6 +6,7 @@ Commands str_to_cmd(std::string str) {
   else if (str == "exit") return Commands::ext;
   else if (str == "type") return Commands::typ;
   else if (str == "pwd") return Commands::pwd;
+  else if (str == "cd") return Commands::cd;
   else return Commands::unknown;
 }
 
@@ -107,6 +108,14 @@ int main(int argc, char** argv) {
     case Commands::pwd:
       //call getcwd()
       std::cout << getcwd(NULL, 0) << std::endl;
+      break;
+    
+    case Commands::cd:
+      //use chdir, assuming we have an absolute path
+      if (chdir(tokens[1].c_str()) == -1) {
+        //fail condition
+        std::cout << "cd: " << tokens[1] << ": No such file or directory" << std::endl;
+      }
       break;
     //either it's an executable program or it's a unknown command
     default:

@@ -7,5 +7,5 @@
 #include <wait.h>
 
 enum Commands {
-    echo, ext, typ, pwd, unknown=-1
+    echo, ext, typ, pwd, cd, unknown=-1
 };
