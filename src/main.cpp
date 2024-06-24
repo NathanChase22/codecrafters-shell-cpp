@@ -16,15 +16,15 @@ Commands str_to_cmd(std::string str) {
 std::string is_executable(std::string cmd) {
   //get the enviromental PATH
   const char* path = getenv("PATH");
-  std::cout << path << std::endl;
 
   std::istringstream iss(path);
   std::string fp;
 
   while (std::getline(iss,fp,':')) {
     //append to fp our cmd
+    fp.append("/");
     fp.append(cmd);
-    std::cout << fp << std::endl;
+
     //check if the file exists
     if(access(fp.c_str(), F_OK | X_OK) == 0) return fp;
   }
@@ -41,7 +41,6 @@ int main(int argc, char** argv) {
 
     // Uncomment this block to pass the first stage
     std::cout << "$ ";
-    
     //create a string variable and use it store console input
     std::string input;
     std::getline(std::cin, input);
@@ -79,20 +78,19 @@ int main(int argc, char** argv) {
       if (str_to_cmd(tokens.at(1)) != Commands::unknown) {
         std::cout << tokens.at(1) << " is a shell builtin" << std::endl;
       } else {
-        std::cout << tokens.at(1) << ": not found" << std::endl;
+        std::string exec_path = is_executable(tokens.at(1));
+        
+        if (!exec_path.empty()) {
+          std::cout << tokens.at(1) << " is " << exec_path << std::endl;
+        } else { //is empty, which means no executable
+          std::cout << tokens.at(1) << ": not found" << std::endl;
+        }
       }
       break;
 
     default:
-      //either it's an unknown command or an executible
-      std::cout << "HERE (1)!" << std::endl;
-      std::string exec_path = is_executable(cmd);
-      if (!exec_path.empty()) {
-        std::cout << cmd << "is " << exec_path << std::endl;
-      } else { //is empty, which means no executable
         std::cout << input << ": command not found" << std::endl;
-      }
-      break;
+        break;
     }
   }
 }
