@@ -1,21 +1,30 @@
 #include "main.h"
 
 /**
+ * TODO: right now redirection is changing the file descriptor rather than FILE* 
+ *      use freopen() instead of dup2() to alter std::cin 
+ * TODO: We need echo when input redirection occurs to read from std::cin rather than the tokens vector
+ * 
  * TODO: make sure our naming conventions follow a readable standard, since right now they 
  *      all follow this_standard
- * TODO: Whenever I make a deletion in the middle of the statement it doesn't move any procedding characters to the left
- *      and vice versa
+ * TODO: think about having a auto-complete feature
+ * TODO: think about implementing an alias for commands
+ * TODO: piping and redirection
  */
 
 //global variable which will be the termios struct
 //since we have no multi threading, we can get away with a global variable
 termios term, newt;
+int og_stdin = dup(0);
+int og_stdout = dup(1);
 
 int main(int argc, char** argv) {
   // REPL (read shell_eval print loop)
   // when will there be a exit command other than an interrupt???
 
   std::vector<std::string> tokens;
+  std::map<std::string, std::string> usr_var;
+  // std::map<std::string, std::string> cmd_aliases;
   size_t rt_cmd_count;
 
   //initialize GNU History management
@@ -41,11 +50,15 @@ int main(int argc, char** argv) {
     //create a string variable and use it store console input
     std::string input = shell_read();
 
-    shell_interpret(input, tokens);
+    shell_interpret(input, tokens,usr_var);
     //shell_evaluate...
     shell_eval(input, tokens);
     //execution complete, add to the end of our list and clear our tokens array
     /** NOTE: Commented out to test reading only */
+    //reset the input and output
+    dup2(og_stdout, 0);
+    dup2(og_stdin, 1);
+
     add_history(input.c_str());
     history_set_pos(history_length);
     rt_cmd_count++;
@@ -56,17 +69,6 @@ int main(int argc, char** argv) {
 // Reads and shell_evaluates a line of input delimited by a EOL
 std::string shell_read() {
   //create temp buffer with the maximum number of characters allowed
-
-  /**
-   * TODO: -) adjust cursor and cursor when we add a new character
-   *       -) adjust cursor and cursor when we remove a character
-   *       -) only change the cursor when you press the side arrow key
-   *       -) if the cursor is at the cursor and we move to the right it does nothing
-   *       -) if the cursor is at zero then we move to the left it does nothing
-   * 
-   * NOTE: when we add an entry in the middle of our buffer we need to shift everything to the right
-   * NOTE: consider changing our raw char array to a std vector, dyamic resizing and handles popping easily 
-   */
   std::vector<char> buff(_POSIX_MAX_CANON);
   size_t cursor = 0;
   int res = 0;
@@ -92,20 +94,10 @@ std::string shell_read() {
 
       // //handle backspace
       if ((c == '\b' || c == '\x7f')) {
-        if (!buff.empty() && cursor > 0) {
-          buff.erase(buff.begin()+(--cursor));
-          //move cursor back one
-          putchar('\b');
-          //clear from cursor to end
-          std::cout << "\033[0K";
-          std::cout << std::string(buff.begin()+cursor, buff.end()); 
-          //reset cursor
-
-        }
+        handle_backspace(buff, cursor);
       }
       else if (c == '\x1B') {
         //arrow keys
-
         handle_arrow(buff, cursor);
         //should work by giving me back '[A'
       }
@@ -126,13 +118,13 @@ std::string shell_read() {
     //get rid of newline at end
     if (buff[buff.size()-1] == '\n') buff[buff.size()-1] = '\0';
   }
-
   return std::string(buff.begin(), buff.end());
 }
 
-void shell_interpret(std::string& input, std::vector<std::string>& tokens)  {
-
-  //DEBUG
+void shell_interpret(std::string& input, std::vector<std::string>& tokens,
+ std::map<std::string, std::string>& usr_var)  {
+  
+  //DEBUG: input
   std::cout << input << std::endl;
   //input stream reads
   std::istringstream iss(input);
@@ -141,36 +133,92 @@ void shell_interpret(std::string& input, std::vector<std::string>& tokens)  {
   std::string tok;
 
   while (std::getline(iss, tok, ' ')) {
-    //remove all extra spaces 
-    tok.erase(std::remove(tok.begin(), tok.end(), ' '), tok.end());
-    //check if the token is an environmental variable
+    //change the logic so that we can extract the user variable out from prefix and suffix
     if (tok.front() == '$') {
-      const char* env_val = getenv(tok.substr(1).c_str());
-      if (env_val) tokens.push_back(env_val);
-      else tokens.push_back("");
-    } else if (!tok.empty()){
+      tokens.push_back(get_uservar(tok, usr_var));
+    }
+    //NOTE: consider doing this in the evaluation stage
+    else if (tok.find('=') != std::string::npos) {
+
+      size_t break_at = tok.find('=');
+      //KEY=VAL
+      usr_var[tok.substr(0,break_at)] = tok.substr(break_at+1);
+      //we don't need to push anything
+    }
+    else if (!tok.empty()){
       tokens.push_back(tok);
     }
-  }    
+  } 
 }
 
+//execute programs that we have interpreted from the user
 void shell_eval(std::string& input, std::vector<std::string>& tokens) {
   //I have been getting errors where because the input was empty and so the token list 
   //is empty, I get a out of range error which breaks everything, lets try not letting that 
   //happen
-  std::string cmd;
-  try {
-    cmd = tokens.at(0);
-  } catch (const std::out_of_range& e) {
+  if (tokens.empty()) {
     return;
   }
-  
-  std::string prev_cmd;
 
+  //before executing, we need to change the redirection stuff
+
+  //if < then we need to change file descriptor 0 (stdin)
+  //if << then we change the file descriptor and have it start at the EOF
+  //if > then we change file descriptor 1 (stdout)
+  //if >> then we change fd 1 and have it start at EOF
+
+  //how should we open the file? write-only? append mode?
+  size_t file_flgs;
+
+  //find_if returns a iterator which when subtracted with the begin() iterator will give us the idx position
+  std::vector<std::string>::iterator input_redir = std::find_if(tokens.begin(), tokens.end(), [](std::string tok) {
+    return tok == "<" || tok == "<<";
+  });
+  size_t input_redir_at = input_redir - tokens.begin();
+  
+
+  if (input_redir_at < tokens.size()-1) {
+    std::string new_input = tokens.at(input_redir_at+1);
+    //open file with a diff fd
+    size_t redir_from = open(new_input.c_str(), O_RDONLY);
+    //duplicate fd into fd 0
+    dup2(redir_from, 0);
+    //close diff fd
+    close(redir_from);
+    //remove the tokens the direction tokens and file name
+    tokens.erase(input_redir, input_redir+2);
+  }
+
+  std::vector<std::string>::iterator output_redir =  std::find_if(tokens.begin(), tokens.end(), [](std::string tok) {
+    return tok == ">" || tok == ">>";
+  });
+
+  size_t output_redir_at = output_redir - tokens.begin();
+  //ensure that ">>" is found and a corresponding text name is present
+  if (output_redir_at < tokens.size()-1) {
+    std::string new_output = tokens.at(output_redir_at+1);
+    //open or create file with a diff fd
+    size_t redir_to = open(new_output.c_str(), O_WRONLY | O_CREAT);
+
+    //ensure that there's actually a correct fd
+    if (redir_to != -1) {
+      //duplicate fd into fd 0
+      dup2(redir_to, 1);
+      //close diff fd
+      close(redir_to);
+      //remove the tokens the direction tokens and file name
+      tokens.erase(output_redir, output_redir+2);
+    }
+  }
+
+  std::string cmd = tokens.at(0);
   switch (str_to_cmd(cmd))
   {
+    /**
+     * NOTE: change echo so that it can read from input file directory instead of tokens 
+     */
   case Commands::echo:
-    //print out environmental variables
+
     if (tokens.size() > 1) {
       for (size_t i = 1; i < tokens.size(); i++) {
         std::cout << tokens[i];
@@ -205,21 +253,26 @@ void shell_eval(std::string& input, std::vector<std::string>& tokens) {
   
   case Commands::cd:
     //use chdir, assuming we have an absolute path
-    if (chdir(tokens[1].c_str()) == -1 && tokens[1] != "~") {
+    /** NOTE: changed the logic for ~ to only look at the first char, something different with the input ~  */
+    if (tokens[1].at(0) == '~') {
+      //user home directory
+      char* home_dir = getenv("HOME");
+      //NOTE: replace '~' with home_dir
+      tokens[1].erase(0,1);
+      tokens[1].insert(0,home_dir);
+    }
+
+
+    if (chdir(tokens[1].c_str()) == -1) {
       //fail condition
       std::cout << "cd: " << tokens[1] << ": No such file or directory" << std::endl;
     } 
-    else if (tokens[1] == "~") {
-      //user home directory
-      chdir(getenv("HOME"));
-    }
     else {
       //success set the environmental variable
       if (setenv("PWD",tokens[1].c_str(),1) != 0) {
         perror("setenv");
       }
     }
-    
     break;
   
   //either it's an executable program or it's a unknown command
@@ -241,6 +294,7 @@ void shell_eval(std::string& input, std::vector<std::string>& tokens) {
   }
 }
 
+//read from the history file and populate our list
 void init_hist() {
   //check environmental variables and init environmental variables
   std::cout << "\033[38;5;33m";
@@ -268,6 +322,21 @@ void init_hist() {
   }
 }
 
+//handles deleting characters in the terminal and in the buffer
+void handle_backspace(std::vector<char>& buff, size_t& cursor) {
+  
+  if (!buff.empty() && cursor > 0) {
+    buff.erase(buff.begin()+(--cursor));
+    //move cursor back one
+    putchar('\b');
+    //clear from cursor to end
+    std::cout << "\033[0K";
+    std::cout << std::string(buff.begin()+cursor, buff.end()); 
+    //reset cursor
+
+  }
+}
+
 //handles dealing with arrow input while in the reading stage
 void handle_arrow(std::vector<char>& buff, size_t& cursor) {
   //check if next char is '['
@@ -276,7 +345,8 @@ void handle_arrow(std::vector<char>& buff, size_t& cursor) {
     char arrow_dir = getchar();
     //return last entry (if up or down arrow)
     if (arrow_dir == 'A' || arrow_dir == 'B') {
-      const char* tmp = (grab_entry(arrow_dir)).c_str();
+      std::string arr_entry = grab_entry(arrow_dir);
+      const char* tmp = arr_entry.c_str();
       //outputting our entry is simple enough, but what about actually processing it and returning it?
       //right now we have a full string, but the user may not want to process that command
       std::cout << "\033[3G";
@@ -295,7 +365,7 @@ void handle_arrow(std::vector<char>& buff, size_t& cursor) {
       }
     } 
     // NOTE: I 
-    else if (arrow_dir == 'C' &&  cursor < (buff.size()-1)) {
+    else if (arrow_dir == 'C' &&  cursor < (buff.size())) {
       //left adjust cursor
       std::cout << "\033[1C";
       cursor++;
@@ -341,6 +411,35 @@ std::string grab_entry(const char arrow_dir) {
   //get history entry struct, grab text and turn into string
   return (hist_entry != nullptr) ? std::string(hist_entry->line) : "";
 }
+
+//grabs a saved user-defined or environmental variable
+std::string get_uservar(std::string& tok, std::map<std::string, std::string>& usr_var) {
+  std::string key = tok.substr(1);
+
+  std::string suffix;
+
+  // Find the first non-alphanumeric character in the key
+  size_t firstNonAlphaNum = std::find_if(key.begin(), key.end(), [](unsigned char c) {
+      return !std::isalnum(c);
+  }) - key.begin();
+
+  // If found, split the key and the suffix
+  if (firstNonAlphaNum != std::string::npos) {
+      suffix = key.substr(firstNonAlphaNum);
+      key.erase(firstNonAlphaNum);
+  }
+
+
+  if (usr_var.count(key) != 0) {
+    return usr_var[key]+suffix;
+  }
+  else if(getenv(key.c_str()) != nullptr) {
+    return getenv(key.c_str())+suffix;
+  } else {
+    return suffix;
+  }
+}
+
 
 //create command helper method, should I pass in a dereferenced ptr (&)?
 Commands str_to_cmd(std::string str) {

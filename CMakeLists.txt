@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Enable/Disable export of compile commands")
+
 set(CMAKE_TOOLCHAIN_FILE /Users/school/vcpkg/scripts/buildsystems/vcpkg.cmake CACHE PATH "vcpkg toolchain file")
 
 project(shell-starter-cpp)
