@@ -1,22 +1,20 @@
 #include "main.h"
 
 /**
- * TODO: right now redirection is changing the file descriptor rather than FILE* 
- *      use freopen() instead of dup2() to alter std::cin 
- * TODO: We need echo when input redirection occurs to read from std::cin rather than the tokens vector
+ * TODO: fix up input redirection so that we have access to file contents as an arguement for execv()
  * 
- * TODO: make sure our naming conventions follow a readable standard, since right now they 
- *      all follow this_standard
- * TODO: think about having a auto-complete feature
- * TODO: think about implementing an alias for commands
- * TODO: piping and redirection
+ * TODO: add an additional redirection for cerr (i.e '2>') 
+ * 
+ * TODO: set up the Docker container to containerize my app
  */
 
 //global variable which will be the termios struct
 //since we have no multi threading, we can get away with a global variable
 termios term, newt;
-int og_stdin = dup(0);
-int og_stdout = dup(1);
+
+//store the default buffers for cin and cout
+std::streambuf* og_input_buff = std::cin.rdbuf();
+std::streambuf* og_output_buff = std::cout.rdbuf();
 
 int main(int argc, char** argv) {
   // REPL (read shell_eval print loop)
@@ -37,6 +35,12 @@ int main(int argc, char** argv) {
   newt.c_lflag &= ~(ICANON | ECHO);
   tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 
+  //set up signal handler for SIGINT
+  signal(SIGINT, handle_sigint);
+
+  //debug, errors will now be red
+  std::cerr << "\033[0;31m";
+
   while (1) { 
     // Flush after every std::cout / std:cerr
     std::cout << std::unitbuf;
@@ -56,8 +60,8 @@ int main(int argc, char** argv) {
     //execution complete, add to the end of our list and clear our tokens array
     /** NOTE: Commented out to test reading only */
     //reset the input and output
-    dup2(og_stdout, 0);
-    dup2(og_stdin, 1);
+    std::cin.rdbuf(og_input_buff);
+    std::cout.rdbuf(og_output_buff);
 
     add_history(input.c_str());
     history_set_pos(history_length);
@@ -125,7 +129,7 @@ void shell_interpret(std::string& input, std::vector<std::string>& tokens,
  std::map<std::string, std::string>& usr_var)  {
   
   //DEBUG: input
-  std::cout << input << std::endl;
+  // std::cout << input << std::endl;
   //input stream reads
   std::istringstream iss(input);
   //create array list or 'vector' to store tokens
@@ -160,138 +164,33 @@ void shell_eval(std::string& input, std::vector<std::string>& tokens) {
     return;
   }
 
-  //before executing, we need to change the redirection stuff
-
-  //if < then we need to change file descriptor 0 (stdin)
-  //if << then we change the file descriptor and have it start at the EOF
-  //if > then we change file descriptor 1 (stdout)
-  //if >> then we change fd 1 and have it start at EOF
-
-  //how should we open the file? write-only? append mode?
-  size_t file_flgs;
-
-  //find_if returns a iterator which when subtracted with the begin() iterator will give us the idx position
-  std::vector<std::string>::iterator input_redir = std::find_if(tokens.begin(), tokens.end(), [](std::string tok) {
-    return tok == "<" || tok == "<<";
-  });
-  size_t input_redir_at = input_redir - tokens.begin();
-  
-
-  if (input_redir_at < tokens.size()-1) {
-    std::string new_input = tokens.at(input_redir_at+1);
-    //open file with a diff fd
-    size_t redir_from = open(new_input.c_str(), O_RDONLY);
-    //duplicate fd into fd 0
-    dup2(redir_from, 0);
-    //close diff fd
-    close(redir_from);
-    //remove the tokens the direction tokens and file name
-    tokens.erase(input_redir, input_redir+2);
-  }
-
-  std::vector<std::string>::iterator output_redir =  std::find_if(tokens.begin(), tokens.end(), [](std::string tok) {
-    return tok == ">" || tok == ">>";
-  });
-
-  size_t output_redir_at = output_redir - tokens.begin();
-  //ensure that ">>" is found and a corresponding text name is present
-  if (output_redir_at < tokens.size()-1) {
-    std::string new_output = tokens.at(output_redir_at+1);
-    //open or create file with a diff fd
-    size_t redir_to = open(new_output.c_str(), O_WRONLY | O_CREAT);
-
-    //ensure that there's actually a correct fd
-    if (redir_to != -1) {
-      //duplicate fd into fd 0
-      dup2(redir_to, 1);
-      //close diff fd
-      close(redir_to);
-      //remove the tokens the direction tokens and file name
-      tokens.erase(output_redir, output_redir+2);
-    }
-  }
-
-  std::string cmd = tokens.at(0);
-  switch (str_to_cmd(cmd))
-  {
-    /**
-     * NOTE: change echo so that it can read from input file directory instead of tokens 
-     */
-  case Commands::echo:
-
-    if (tokens.size() > 1) {
-      for (size_t i = 1; i < tokens.size(); i++) {
-        std::cout << tokens[i];
-        if (i < tokens.size()-1) std::cout << " ";
-      }
-    }
-    std::cout << std::endl;
-    break;
-  
-  case Commands::ext:
-    try {
-      int ext_code = std::stoi(tokens[1]);
-      //before exiting we need to save all commands to file
-      write_history(getenv("HISTFILE"));
-      //then we need to reset the terminal attributes
-      tcsetattr(STDIN_FILENO, TCSANOW, &term);
-      exit(ext_code);
-    } catch (const std::exception& e) {
-      std::cerr << "Invalid argument to exit: " << tokens[1] << std::endl;
-    }
-    break;
-  
-  case Commands::typ:
-    //interpret next token to be command to be typed
-    handle_type(tokens[1]);
-    break;
-  
-  case Commands::pwd:
-    //call getcwd()
-    std::cout << getcwd(NULL, 0) << std::endl;
-    break;
-  
-  case Commands::cd:
-    //use chdir, assuming we have an absolute path
-    /** NOTE: changed the logic for ~ to only look at the first char, something different with the input ~  */
-    if (tokens[1].at(0) == '~') {
-      //user home directory
-      char* home_dir = getenv("HOME");
-      //NOTE: replace '~' with home_dir
-      tokens[1].erase(0,1);
-      tokens[1].insert(0,home_dir);
-    }
+  std::shared_ptr<std::ofstream> fout = handle_output_redir(tokens);
+  std::shared_ptr<std::ifstream> fin = handle_input_redir(tokens);
+  std::cerr << "1";
 
 
-    if (chdir(tokens[1].c_str()) == -1) {
-      //fail condition
-      std::cout << "cd: " << tokens[1] << ": No such file or directory" << std::endl;
-    } 
-    else {
-      //success set the environmental variable
-      if (setenv("PWD",tokens[1].c_str(),1) != 0) {
-        perror("setenv");
-      }
-    }
-    break;
-  
-  //either it's an executable program or it's a unknown command
-  default:
-    //find out if program is an executable
-    std::string exec_path = is_executable(cmd);
-    //check to see if we got an empty string back, then fail condition
-    if (!exec_path.empty()) {
-      //fork a process
-      int pid = fork();
-      int stat;
-      //if child then run
-      if (pid == 0) handle_exec(exec_path, tokens);
-      else waitpid(pid, &stat, 2);
-      //wait till it's finished 
-    } else {
-      std::cout << input << ": command not found" << std::endl;
-    }
-  }
+  /**
+   * NOTE: consider making this whole command decision tree into it's own function
+   *    doing that. we could actually chain commands 
+   */
+
+  /**
+   * DEBUG: print out contents here
+   */
+  std::string cmd_str = tokens.at(0);
+  std::cerr << "2";
+  interpret_cmd(cmd_str, input, tokens);
+  std::cerr << "3";
+}
+
+void handle_sigint(int sig) {
+  std::cin.rdbuf(og_input_buff);
+  std::cout.rdbuf(og_output_buff);
+
+  //restore terminal settings 
+  tcsetattr(STDIN_FILENO, TCSANOW, &term);
+  std::cerr << "Caught signal " << sig << ", exiting..." << std::endl;
+  exit(0);
 }
 
 //read from the history file and populate our list
@@ -299,9 +198,9 @@ void init_hist() {
   //check environmental variables and init environmental variables
   std::cout << "\033[38;5;33m";
   if (!getenv("HISTFILE")) {
-    std::cout << "Setting HISTFILE to /Users/school/.shell_history ...." << std::endl;
+    std::cout << "Setting HISTFILE to /Users/school/.shell_history ..." << std::endl;
     setenv("HISTFILE","/Users/school/.shell_history",1);
-    std::cout << "Setting HISTSIZE to 50 ...." << std::endl;
+    std::cout << "Setting HISTSIZE to 50 ..." << std::endl;
     setenv("HISTSIZE","50",1);
   }
 
@@ -440,6 +339,193 @@ std::string get_uservar(std::string& tok, std::map<std::string, std::string>& us
   }
 }
 
+//searches in prompt for input redirection with a file and reassigns cin to file stream
+std::shared_ptr<std::ifstream> handle_input_redir(std::vector<std::string>& tokens) {
+  
+  std::shared_ptr<std::ifstream> fin;
+  
+  //find_if returns a iterator which when subtracted with the begin() iterator will give us the idx position
+  std::vector<std::string>::iterator input_redir = std::find_if(tokens.begin(), tokens.end(), [](std::string tok) {
+    return tok == "<" || tok == "<<";
+  });
+  size_t input_redir_at = input_redir - tokens.begin();
+
+  if (input_redir_at < tokens.size()-1) {
+    std::string new_input = tokens.at(input_redir_at+1);
+    
+    //check if it's append mode
+    std::ios_base::openmode input_mode = std::ios::in;
+    if (tokens.at(input_redir_at) == "<<") {
+      input_mode |= std::ios::app;
+    }
+    
+    
+    //open file into ifstream
+    fin = std::make_shared<std::ifstream>(new_input.c_str(),input_mode);
+    
+    if (!(*fin)) {
+      perror("ERROR: redirecting from null input file");
+    } else { //file exists, reassigning std::cin
+      //reassign std::cin to our file stream
+      std::cin.rdbuf(fin->rdbuf());
+    }
+   
+    //remove the tokens the direction tokens and file name
+    tokens.erase(input_redir, input_redir+2);
+
+    //take in everything in cin and put it into tokens
+    
+  }
+  return fin;
+}
+
+/**
+ * NOTE: turns out my issue is with this being passed by reference, getting altered,
+ * then it being accessed by the parent function? Kinda weird ngl
+ * 
+ *  The memory address for the vector shouldn't change right?
+ */
+
+//searches in prompt for output redirection with a file and reassigns cout to file stream
+std::shared_ptr<std::ofstream> handle_output_redir(std::vector<std::string>& tokens) {
+
+  std::shared_ptr<std::ofstream> fout;
+
+  std::vector<std::string>::iterator output_redir =  std::find_if(tokens.begin(), tokens.end(), [](std::string tok) {
+    return tok == ">" || tok == ">>";
+  });
+
+  size_t output_redir_at = output_redir - tokens.begin();
+  //ensure that ">>" is found and a corresponding text name is present
+  
+  if (output_redir_at < tokens.size()-1) {
+    std::string new_output = tokens.at(output_redir_at+1);
+
+    //check for append mode
+    std::ios_base::openmode output_mode = std::ios::out;
+    if (tokens.at(output_redir_at) == ">>") {
+      output_mode |= std::ios::app;
+    }
+    
+    /**
+     * NOTE: made this into a shared pointer to ensure ofstream object exists even when the local 
+     *    variable, fout, becomes out of scope. Now 
+     * 
+     *    Now I am trying to see if declaring the variable out side the if statement would work 
+     */
+
+    fout = std::make_shared<std::ofstream>(new_output.c_str(),output_mode);
+    
+
+    if (!(*fout)) {
+      /** NOTE: should create the file if it doesnt exist */
+      std::cerr << "ERROR" << std::endl;
+      perror("ERROR: redirecting to null output file");
+    } else { //file exists, reassigining std:cout
+
+      /**
+       * NOTE: what is likely happening is because fout is a local variable, once it goes 
+       *      out of scope then the the buffer pointed to also disappears?
+       */
+
+      std::cout.rdbuf(fout->rdbuf());
+    }
+    //might just be the same as doing output_redir
+    tokens.erase(tokens.begin() + output_redir_at, tokens.begin() + output_redir_at +2);
+    // Debugging information
+  }
+  return fout;
+}
+
+//handles the cmd interpretation and execution
+void interpret_cmd(std::string cmd_str, std::string& input, std::vector<std::string>& tokens) {
+  Commands cmd = str_to_cmd(cmd_str);
+  switch (cmd)
+  {
+    /**
+     * NOTE: change echo so that it can read from input file directory instead of tokens 
+     */
+  case Commands::echo:
+  
+    if (tokens.size() > 1) {
+      for (size_t i = 1; i < tokens.size(); i++) {
+        std::cout << tokens[i];
+        
+        //insert a space between tokens, but not at end
+        if (i < tokens.size()-1) {
+          std::cout << " ";
+        }
+        
+      }
+    }
+    std::cout << std::endl;
+    break;
+  
+  case Commands::ext:
+    try {
+      int ext_code = std::stoi(tokens[1]);
+      //before exiting we need to save all commands to file
+      write_history(getenv("HISTFILE"));
+      //then we need to reset the terminal attributes
+      tcsetattr(STDIN_FILENO, TCSANOW, &term);
+      exit(ext_code);
+    } catch (const std::exception& e) {
+      std::cerr << "Invalid argument to exit: " << tokens[1] << std::endl;
+    }
+    break;
+  
+  case Commands::typ:
+    //interpret next token to be command to be typed
+    handle_type(tokens[1]);
+    break;
+  
+  case Commands::pwd:
+    //call getcwd()
+    std::cout << getcwd(NULL, 0) << std::endl;
+    break;
+  
+  case Commands::cd:
+    //use chdir, assuming we have an absolute path
+    /** NOTE: changed the logic for ~ to only look at the first char, something different with the input ~  */
+    if (tokens[1].at(0) == '~') {
+      //user home directory
+      char* home_dir = getenv("HOME");
+      //NOTE: replace '~' with home_dir
+      tokens[1].erase(0,1);
+      tokens[1].insert(0,home_dir);
+    }
+
+
+    if (chdir(tokens[1].c_str()) == -1) {
+      //fail condition
+      std::cout << "cd: " << tokens[1] << ": No such file or directory" << std::endl;
+    } 
+    else {
+      //success set the environmental variable
+      if (setenv("PWD",tokens[1].c_str(),1) != 0) {
+        perror("setenv");
+      }
+    }
+    break;
+  
+  //either it's an executable program or it's a unknown command
+  default:
+    //find out if program is an executable
+    std::string exec_path = is_executable(cmd_str);
+    //check to see if we got an empty string back, then fail condition
+    if (!exec_path.empty()) {
+      //fork a process
+      int pid = fork();
+      int stat;
+      //if child then run
+      if (pid == 0) handle_exec(exec_path, tokens);
+      else waitpid(pid, &stat, 2);
+      //wait till it's finished 
+    } else {
+      std::cout << input << ": command not found" << std::endl;
+    }
+  }
+}
 
 //create command helper method, should I pass in a dereferenced ptr (&)?
 Commands str_to_cmd(std::string str) {

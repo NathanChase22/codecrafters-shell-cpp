@@ -32,3 +32,7 @@ std::string grab_entry(const char arrow_dir);
 void init_hist();
 std::string get_uservar(std::string& tok, std::map<std::string, std::string>& usr_var);
 void handle_backspace(std::vector<char>& buff, size_t& cursor);
+std::shared_ptr<std::ifstream> handle_input_redir(std::vector<std::string>& tokens);
+std::shared_ptr<std::ofstream> handle_output_redir(std::vector<std::string>& tokens);
+void interpret_cmd(std::string cmd_str, std::string& input, std::vector<std::string>& tokens);
+void handle_sigint(int sig);
