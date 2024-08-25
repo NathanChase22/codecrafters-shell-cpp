@@ -8,6 +8,25 @@
  * TODO: set up the Docker container to containerize my app
  */
 
+/**
+ * NOTE: ostream objects such as std::cout and std::cin are 
+ *    intermediaries between the C++ call to print and the corresponding 
+ *    FILE struct which represents the I/O destination on our OS
+ *    
+ *     So it usually looks like: 
+ *        std::cout -> stdout FILE struct -> terminal output 
+ *  
+ *     However when I implement my redirection this is what happens,
+ *        std::cout -> other FILE struct -> file contents 
+ *      
+ *     So stdout hasn't been altered, it's just our intermediary, cout is shooting things to the file 
+ *     instead. But what if a program like 'cat' is trying to read from stdin when we have altered cin?
+ *     It won't change anything! We've only altered the top 'layer' of the abstraction, which applications don't
+ *     use. Therefore we need to change stdout FILE struct itself with freopen()  
+ *     
+ */
+
+
 //global variable which will be the termios struct
 //since we have no multi threading, we can get away with a global variable
 termios term, newt;
@@ -166,8 +185,6 @@ void shell_eval(std::string& input, std::vector<std::string>& tokens) {
 
   std::shared_ptr<std::ofstream> fout = handle_output_redir(tokens);
   std::shared_ptr<std::ifstream> fin = handle_input_redir(tokens);
-  std::cerr << "1";
-
 
   /**
    * NOTE: consider making this whole command decision tree into it's own function
@@ -178,9 +195,7 @@ void shell_eval(std::string& input, std::vector<std::string>& tokens) {
    * DEBUG: print out contents here
    */
   std::string cmd_str = tokens.at(0);
-  std::cerr << "2";
   interpret_cmd(cmd_str, input, tokens);
-  std::cerr << "3";
 }
 
 void handle_sigint(int sig) {
@@ -198,8 +213,8 @@ void init_hist() {
   //check environmental variables and init environmental variables
   std::cout << "\033[38;5;33m";
   if (!getenv("HISTFILE")) {
-    std::cout << "Setting HISTFILE to /Users/school/.shell_history ..." << std::endl;
-    setenv("HISTFILE","/Users/school/.shell_history",1);
+    std::cout << "Setting HISTFILE to /.shell_history ..." << std::endl;
+    setenv("HISTFILE","/.shell_history",1);
     std::cout << "Setting HISTSIZE to 50 ..." << std::endl;
     setenv("HISTSIZE","50",1);
   }
@@ -374,7 +389,7 @@ std::shared_ptr<std::ifstream> handle_input_redir(std::vector<std::string>& toke
     tokens.erase(input_redir, input_redir+2);
 
     //take in everything in cin and put it into tokens
-    
+
   }
   return fin;
 }
@@ -498,7 +513,7 @@ void interpret_cmd(std::string cmd_str, std::string& input, std::vector<std::str
 
     if (chdir(tokens[1].c_str()) == -1) {
       //fail condition
-      std::cout << "cd: " << tokens[1] << ": No such file or directory" << std::endl;
+      std::cerr << "cd: " << tokens[1] << ": No such file or directory" << std::endl;
     } 
     else {
       //success set the environmental variable
@@ -510,6 +525,11 @@ void interpret_cmd(std::string cmd_str, std::string& input, std::vector<std::str
   
   //either it's an executable program or it's a unknown command
   default:
+    /**
+     * NOTE: issue right now with "cat < hello.txt" is that cat is running in a child process
+     *    and the child process has the default file descriptors 
+     */
+
     //find out if program is an executable
     std::string exec_path = is_executable(cmd_str);
     //check to see if we got an empty string back, then fail condition
@@ -522,7 +542,7 @@ void interpret_cmd(std::string cmd_str, std::string& input, std::vector<std::str
       else waitpid(pid, &stat, 2);
       //wait till it's finished 
     } else {
-      std::cout << input << ": command not found" << std::endl;
+      std::cerr << input << ": command not found" << std::endl;
     }
   }
 }
@@ -564,7 +584,7 @@ void handle_type(std::string arg1) {
       if (!exec_path.empty()) {
         std::cout << arg1 << " is " << exec_path << std::endl;
       } else { //is empty, which means no executable
-        std::cout << arg1 << ": not found" << std::endl;
+        std::cerr << arg1 << ": not found" << std::endl;
       }
     }
 }
@@ -575,6 +595,7 @@ void handle_exec(const std::string exec_path, const std::vector<std::string>& to
   for (size_t i = 0; i < tokens.size(); i++) {
     argv[i] = strdup(tokens[i].c_str());
   }
+  
   //null terminate the end
   argv[tokens.size()] = nullptr;
   //if execv failed then call error on process

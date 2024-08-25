@@ -15,6 +15,8 @@
 #include <readline/readline.h>
 #include <stdio.h>
 #include <termios.h>
+#include <memory>
+#include <limits.h>
 
 enum Commands {
     echo, ext, typ, pwd, cd, unknown=-1

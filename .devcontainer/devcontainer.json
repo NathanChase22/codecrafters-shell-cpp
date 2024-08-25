@@ -1,0 +1,20 @@
+{
+    "build" : {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.makefile-tools",
+                "GitHub.copilot",
+                "ms-vscode.cmake-tools",
+                "ms-azuretools.vscode-docker"
+            ]
+        }
+    },
+    "features": {"git": "os-provided"},
+    "onCreateCommand": "./.devcontainer/onCreateCommand.sh"
+}
